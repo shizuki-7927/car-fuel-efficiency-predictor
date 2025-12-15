@@ -1,46 +1,53 @@
-# src/train_model.py
+import shap
+import matplotlib.pyplot as plt
+import joblib
 import pandas as pd
 import numpy as np
-from pathlib import Path
-import joblib
+import os
 
-from data_preprocessing import preprocess_features, BASE_DIR
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from xgboost import XGBRegressor
+# ===== モデル読み込み =====
+model = joblib.load("src/model.pkl")
 
-def remove_outliers(df, col):
-    Q1 = df[col].quantile(0.25)
-    Q3 = df[col].quantile(0.75)
-    IQR = Q3 - Q1
-    return df[(df[col] >= Q1 - 1.5 * IQR) & (df[col] <= Q3 + 1.5 * IQR)]
+# ===== データ読み込み =====
+X_test = pd.read_csv("data/processed/X_test.csv")
 
-def train_and_save():
-    df = pd.read_csv(BASE_DIR / "data/raw/auto-mpg.csv")
+# ===== OneHot Encoding =====
+X_test = pd.get_dummies(X_test, columns=["origin"], drop_first=True)
+X_test.columns = X_test.columns.str.replace(".0", "", regex=False)
 
-    df = remove_outliers(df, "mpg")
-    y_train = df["mpg"]
-    X_train = df.drop(columns=["mpg"])
+# ===== 列順を学習時と一致 =====
+X_test = X_test.reindex(
+    columns=["cylinders","displacement","weight","acceleration","model year","origin_2","origin_3"],
+    fill_value=0
+)
 
-    X_scaled, scaler, _, cols = preprocess_features(X_train, fit_scaler=True)
+X_test = X_test.astype(float)
 
-    model = XGBRegressor(random_state=42)
+# ===== SHAP Explainer =====
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
 
-    param_grid = {
-        "n_estimators": [300, 500],
-        "learning_rate": [0.03, 0.05, 0.1],
-        "max_depth": [4, 6, 8],
-        "subsample": [0.8, 1.0],
-        "colsample_bytree": [0.8, 1.0]
-    }
+# ===== Decision Plot =====
+idx = 10
 
-    grid = GridSearchCV(model, param_grid, scoring="r2", cv=5, n_jobs=-1, verbose=1)
-    grid.fit(X_scaled, y_train)
+plt.figure(figsize=(12, 4))
 
-    best_model = grid.best_estimator_
-    joblib.dump(best_model, BASE_DIR / "src/model.pkl")
+shap.decision_plot(
+    explainer.expected_value,
+    shap_values[idx],
+    X_test.iloc[idx, :],
+    show=False   # ← これが超重要
+)
 
-    print("✅ 学習 & 保存 完了！")
+plt.tight_layout()
 
-if __name__ == "__main__":
-    train_and_save()
+# ===== 保存 =====
+os.makedirs("outputs", exist_ok=True)
+plt.savefig(
+    "outputs/decision_plot_example.png",
+    dpi=200,
+    bbox_inches="tight"
+)
+plt.close()
+
+print("🎉 decision plot saved → outputs/decision_plot_example.png")
