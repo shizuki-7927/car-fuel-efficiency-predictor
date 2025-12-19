@@ -1,53 +1,33 @@
 import shap
-import matplotlib.pyplot as plt
-import joblib
 import pandas as pd
-import numpy as np
+import joblib
+import matplotlib.pyplot as plt
 import os
 
-# ===== モデル読み込み =====
+# ===== 読み込み =====
 model = joblib.load("src/model.pkl")
+scaler = joblib.load("src/scaler.pkl")
 
-# ===== データ読み込み =====
-X_test = pd.read_csv("data/processed/X_test.csv")
+X_train = pd.read_csv("data/processed/X_train.csv")
+X_test  = pd.read_csv("data/processed/X_test.csv")
 
-# ===== OneHot Encoding =====
-X_test = pd.get_dummies(X_test, columns=["origin"], drop_first=True)
-X_test.columns = X_test.columns.str.replace(".0", "", regex=False)
-
-# ===== 列順を学習時と一致 =====
-X_test = X_test.reindex(
-    columns=["cylinders","displacement","weight","acceleration","model year","origin_2","origin_3"],
-    fill_value=0
+# ===== SHAP Explainer（Linear用）=====
+explainer = shap.LinearExplainer(
+    model,
+    X_train,
+    feature_perturbation="interventional"
 )
 
-X_test = X_test.astype(float)
+shap_values = explainer(X_test)
 
-# ===== SHAP Explainer =====
-explainer = shap.TreeExplainer(model)
-shap_values = explainer.shap_values(X_test)
-
-# ===== Decision Plot =====
-idx = 10
-
-plt.figure(figsize=(12, 4))
-
-shap.decision_plot(
-    explainer.expected_value,
-    shap_values[idx],
-    X_test.iloc[idx, :],
-    show=False   # ← これが超重要
-)
-
-plt.tight_layout()
-
-# ===== 保存 =====
+# ===== 出力先 =====
 os.makedirs("outputs", exist_ok=True)
-plt.savefig(
-    "outputs/decision_plot_example.png",
-    dpi=200,
-    bbox_inches="tight"
-)
+
+# ===== summary plot =====
+plt.figure()
+shap.summary_plot(shap_values, X_test, show=False)
+plt.tight_layout()
+plt.savefig("outputs/shap_summary.png", dpi=150)
 plt.close()
 
-print("🎉 decision plot saved → outputs/decision_plot_example.png")
+print("✅ SHAP summary saved: outputs/shap_summary.png")
